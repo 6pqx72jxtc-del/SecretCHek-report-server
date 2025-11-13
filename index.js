@@ -1,42 +1,52 @@
-// index.js
-const express = require('express');
-const axios = require('axios');
+// index.js — простой сервер для SecretChek
+
+const express = require("express");
+const axios = require("axios");
 
 const app = express();
 app.use(express.json());
 
-// токен храним в переменной окружения TELEGRAM_BOT_TOKEN
-const BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
-const CHAT_ID = process.env.REPORT_CHAT_ID; // сюда потом поставим id чата/канала
+// Переменные окружения для Телеграма
+const TELEGRAM_BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
+const TELEGRAM_CHAT_ID = process.env.TELEGRAM_CHAT_ID;
 
-// корневой маршрут — просто проверка, что сервер жив
-app.get('/', (req, res) => {
-  res.send('SecretChek report server is running');
+// Вспомогательная функция отправки сообщения в Telegram
+async function sendToTelegram(text) {
+  if (!TELEGRAM_BOT_TOKEN || !TELEGRAM_CHAT_ID) {
+    console.log("Telegram env not set, skip send");
+    return;
+  }
+
+  const url = `https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage`;
+
+  await axios.post(url, {
+    chat_id: TELEGRAM_CHAT_ID,
+    text,
+    parse_mode: "Markdown"
+  });
+}
+
+// Корень — просто проверка, что сервер жив
+app.get("/", (req, res) => {
+  res.send("SecretChek report server is running");
 });
 
-// простой тестовый маршрут, который присылает сообщение в Telegram
-app.post('/test-send', async (req, res) => {
+// Тестовый маршрут — именно он: /test-send
+app.get("/test-send", async (req, res) => {
   try {
-    if (!BOT_TOKEN || !CHAT_ID) {
-      return res.status(500).json({ error: 'BOT_TOKEN or CHAT_ID not configured' });
-    }
-
-    const text = 'Тестовое сообщение от SecretChek сервера ✅';
-
-    await axios.post(`https://api.telegram.org/bot${BOT_TOKEN}/sendMessage`, {
-      chat_id: CHAT_ID,
-      text
-    });
-
-    res.json({ ok: true });
+    await sendToTelegram("Тестовое сообщение от SecretChek report server");
+    res.send("Test endpoint OK. Сообщение отправлено в Telegram (если env настроены).");
   } catch (err) {
-    console.error(err.response?.data || err.message);
-    res.status(500).json({ error: 'Failed to send message' });
+    console.error("Error sending Telegram test:", err.message);
+    res
+      .status(500)
+      .send("Test endpoint OK, но отправка в Telegram не удалась — смотри логи Render.");
   }
 });
 
-// порт для Render
-const PORT = process.env.PORT || 3000;
+// (потом тут добавим /report для приёма отчётов из приложения)
+
+const PORT = process.env.PORT || 10000;
 app.listen(PORT, () => {
-  console.log(`Server started on port ${PORT}`);
+  console.log(`SecretChek server listening on port ${PORT}`);
 });
