@@ -1,46 +1,39 @@
-// SecretChek Report Receiver Server
-// Author: Roman x ChatGPT
-// Purpose: Receives reports from iOS app and forwards to Telegram + amoCRM
+// SecretChek Report Receiver (simple version)
 
+// 1) Подтягиваем express (фреймворк для сервера)
 import express from "express";
-import multer from "multer";
-import fetch from "node-fetch";
-import fs from "fs";
 
-// -------------------------------
-// 🔐 Your Telegram Bot Token
-// -------------------------------
-const TELEGRAM_TOKEN = "8588541058:AAG5qCuMguytyXn74ToWTHxUaQoffRx7hFM";
+// 2) Настройки Telegram
+const TELEGRAM_TOKEN = "8588541058:AAG5qCuMguytyXn74ToWTHxUaQoffRx7hFM"; // вставь сюда свой токен
+const ADMIN_CHAT_ID = "1077937554";       // твой chat_id из getUpdates
 
-// The chat ID (your personal ID from getUpdates result)
-const ADMIN_CHAT_ID = "1077937554"; 
-
-// -------------------------------
-// ⚙️  Express + file upload setup
-// -------------------------------
+// 3) Создаём приложение
 const app = express();
+
+// Позволяем читать JSON из тела запроса
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
-const upload = multer({ dest: "uploads/" });
+// 4) Тестовый GET-эндпоинт — проверка, что сервер жив
+app.get("/", (req, res) => {
+  res.send("SecretChek report server is running ✅");
+});
 
-// -------------------------------
-// 📩 Receive Report from iOS App
-// -------------------------------
-app.post("/api/report", upload.any(), async (req, res) => {
+// 5) Основной эндпоинт для отчёта
+app.post("/api/report", async (req, res) => {
   try {
     const { shopName, visitDate, comment } = req.body;
 
     const textMessage = `
 📋 *Новый отчёт из приложения SecretChek*
 
-🏪 Точка: ${shopName}
-📅 Дата: ${visitDate}
+🏪 Точка: ${shopName || "-"}
+📅 Дата: ${visitDate || "-"}
 💬 Комментарий:
-${comment}
+${comment || "-"}
     `;
 
-    // 1. Send text message
+    // Отправляем сообщение в Telegram
     await fetch(`https://api.telegram.org/bot${TELEGRAM_TOKEN}/sendMessage`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -51,30 +44,15 @@ ${comment}
       })
     });
 
-    // 2. Send all attached files
-    for (const file of req.files) {
-      const fileStream = fs.createReadStream(file.path);
-
-      const formData = new FormData();
-      formData.append("chat_id", ADMIN_CHAT_ID);
-      formData.append("document", fileStream, file.originalname);
-
-      await fetch(
-        `https://api.telegram.org/bot${TELEGRAM_TOKEN}/sendDocument`,
-        { method: "POST", body: formData }
-      );
-
-      fs.unlinkSync(file.path); // delete temp file
-    }
-
     res.json({ status: "ok" });
   } catch (error) {
-    console.error(error);
-    res.status(500).json({ error: "server-error" });
+    console.error("Telegram error:", error);
+    res.status(500).json({ error: "telegram-error" });
   }
 });
 
-// -------------------------------
-// 🚀 Start server
-// -------------------------------
-app.listen(3000, () => console.log("Server started on port 3000"));
+// 6) Запуск сервера (Railway сам подставит PORT)
+const PORT = process.env.PORT || 3000;
+app.listen(PORT, () => {
+  console.log(`SecretChek server started on port ${PORT}`);
+});
