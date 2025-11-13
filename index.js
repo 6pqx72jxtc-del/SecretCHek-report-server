@@ -1,53 +1,42 @@
-import express from "express";
-import multer from "multer";
-import fetch from "node-fetch";
+// index.js
+const express = require('express');
+const axios = require('axios');
 
 const app = express();
 app.use(express.json());
 
-// Для загрузки файлов
-const upload = multer({ limits: { fileSize: 25 * 1024 * 1024 } }); // до 25 MB
+// токен храним в переменной окружения TELEGRAM_BOT_TOKEN
+const BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
+const CHAT_ID = process.env.REPORT_CHAT_ID; // сюда потом поставим id чата/канала
 
-// Переменные окружения
-const BOT_TOKEN = process.env.BOT_TOKEN;
-const CHAT_ID = process.env.CHAT_ID;
+// корневой маршрут — просто проверка, что сервер жив
+app.get('/', (req, res) => {
+  res.send('SecretChek report server is running');
+});
 
-// Эндпоинт для получения отчёта
-app.post("/report", upload.any(), async (req, res) => {
+// простой тестовый маршрут, который присылает сообщение в Telegram
+app.post('/test-send', async (req, res) => {
   try {
-    const text = req.body.text || "Отчёт без текста";
-
-    // 1. Отправляем текст в Telegram
-    await fetch(`https://api.telegram.org/bot${BOT_TOKEN}/sendMessage`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        chat_id: CHAT_ID,
-        text: text,
-      }),
-    });
-
-    // 2. Отправляем все файлы
-    if (req.files && req.files.length > 0) {
-      for (const file of req.files) {
-        const formData = new FormData();
-        formData.append("chat_id", CHAT_ID);
-        formData.append("document", new Blob([file.buffer]), file.originalname);
-
-        await fetch(`https://api.telegram.org/bot${BOT_TOKEN}/sendDocument`, {
-          method: "POST",
-          body: formData,
-        });
-      }
+    if (!BOT_TOKEN || !CHAT_ID) {
+      return res.status(500).json({ error: 'BOT_TOKEN or CHAT_ID not configured' });
     }
+
+    const text = 'Тестовое сообщение от SecretChek сервера ✅';
+
+    await axios.post(`https://api.telegram.org/bot${BOT_TOKEN}/sendMessage`, {
+      chat_id: CHAT_ID,
+      text
+    });
 
     res.json({ ok: true });
   } catch (err) {
-    console.error(err);
-    res.status(500).json({ error: "Ошибка сервера" });
+    console.error(err.response?.data || err.message);
+    res.status(500).json({ error: 'Failed to send message' });
   }
 });
 
-// Запуск сервера
+// порт для Render
 const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => console.log("Server running on port " + PORT));
+app.listen(PORT, () => {
+  console.log(`Server started on port ${PORT}`);
+});
