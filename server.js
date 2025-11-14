@@ -1,80 +1,74 @@
+// server.js — ПОЛНАЯ ВЕРСИЯ
+
 const express = require('express');
+const cors = require('cors');
 const multer = require('multer');
 const axios = require('axios');
-const FormData = require('form-data');
+const fs = require('fs');
 
 const app = express();
+app.use(cors());
 app.use(express.json());
-app.use(express.urlencoded({ extended: true }));
 
-// Хранилище для фото/видео в оперативке (подходит для Render)
-const upload = multer({ storage: multer.memoryStorage() });
+const upload = multer({ dest: 'uploads/' });
 
-// Токены Telegram из переменных окружения Render
-const TELEGRAM_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
+const BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
 const CHAT_ID = process.env.TELEGRAM_CHAT_ID;
 
-// Тестовый маршрут
-app.get('/test-send', async (req, res) => {
-  if (!TELEGRAM_TOKEN || !CHAT_ID) {
-    console.log("Telegram env not set, skip send");
-    return res.send("Env не настроены");
-  }
-
-  try {
-    await axios.post(
-      `https://api.telegram.org/bot${TELEGRAM_TOKEN}/sendMessage`,
-      {
-        chat_id: CHAT_ID,
-        text: "Тестовое сообщение от SecretChek сервер 👌"
-      }
-    );
-
-    res.send("Тест отправлен в Telegram!");
-  } catch (err) {
-    console.error("Ошибка:", err.response?.data || err.message);
-    res.send("Ошибка отправки");
-  }
+app.get('/', (req, res) => {
+    res.send('SecretChek report server is running.');
 });
 
-// Основной маршрут для приёма отчёта
-app.post('/send-report', upload.array('files'), async (req, res) => {
-  try {
-    const { title, comment } = req.body;
-    const files = req.files || [];
+// ───────────────────────────────────────────────
+// 📌 Основной маршрут для приёма отчётов
+// ───────────────────────────────────────────────
 
-    // 1. Отправляем текст
-    await axios.post(
-      `https://api.telegram.org/bot${TELEGRAM_TOKEN}/sendMessage`,
-      {
-        chat_id: CHAT_ID,
-        text: `Новый отчёт\nНазвание: ${title}\nКомментарий: ${comment}`
-      }
-    );
+app.post('/send-report', upload.array('files', 10), async (req, res) => {
+    try {
+        const { comment, location, time, shopId } = req.body;
+        const files = req.files;
 
-    // 2. Отправляем фото / видео
-    for (const file of files) {
-      const form = new FormData();
-      form.append(
-        file.mimetype.startsWith("video") ? 'video' : 'photo',
-        file.buffer,
-        file.originalname
-      );
-      form.append('chat_id', CHAT_ID);
+        console.log('=== Новый отчёт ===');
+        console.log('Текст:', comment);
+        console.log('Файлов загружено:', files.length);
 
-      await axios.post(
-        `https://api.telegram.org/bot${TELEGRAM_TOKEN}/${file.mimetype.startsWith("video") ? 'sendVideo' : 'sendPhoto'}`,
-        form,
-        { headers: form.getHeaders() }
-      );
+        // 1) Отправляем текст в Telegram
+        const textMessage =
+            `📋 Новый отчёт\n` +
+            `🕒 Время: ${time}\n` +
+            `📍 Локация: ${location}\n` +
+            `🏪 Точка: ${shopId}\n\n` +
+            `💬 Комментарий: ${comment}`;
+
+        await axios.post(
+            `https://api.telegram.org/bot${BOT_TOKEN}/sendMessage`,
+            { chat_id: CHAT_ID, text: textMessage }
+        );
+
+        // 2) Отправляем файлы (фото, видео и т.д.)
+        for (const file of files) {
+            console.log('Отправляю файл:', file.originalname);
+
+            const fileStream = fs.createReadStream(file.path);
+            const formData = new FormData();
+            formData.append("chat_id", CHAT_ID);
+            formData.append("document", fileStream, file.originalname);
+
+            await axios.post(
+                `https://api.telegram.org/bot${BOT_TOKEN}/sendDocument`,
+                formData,
+                { headers: formData.getHeaders() }
+            );
+
+            fs.unlinkSync(file.path); // удалить файл с сервера
+        }
+
+        res.json({ ok: true, message: "Report sent to Telegram" });
+
+    } catch (err) {
+        console.error('Ошибка отправки отчёта:', err.response?.data || err);
+        res.status(500).json({ error: "Ошибка сервера" });
     }
-
-    res.json({ status: "OK" });
-
-  } catch (err) {
-    console.error("Ошибка отправки отчёта:", err.response?.data || err.message);
-    res.status(500).json({ error: "Ошибка сервера" });
-  }
 });
 
 module.exports = app;
