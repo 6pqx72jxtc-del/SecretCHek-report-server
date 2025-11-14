@@ -1,74 +1,93 @@
-// server.js — ПОЛНАЯ ВЕРСИЯ
-
+// server.js
 const express = require('express');
-const cors = require('cors');
-const multer = require('multer');
-const axios = require('axios');
-const fs = require('fs');
-
 const app = express();
-app.use(cors());
+
+// чтобы читать JSON из тела запроса
 app.use(express.json());
 
-const upload = multer({ dest: 'uploads/' });
-
+// переменные окружения из Render
 const BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
-const CHAT_ID = process.env.TELEGRAM_CHAT_ID;
+const CHAT_ID  = process.env.TELEGRAM_CHAT_ID;
 
+// базовый маршрут — просто проверка, что сервер жив
 app.get('/', (req, res) => {
-    res.send('SecretChek report server is running.');
+  res.send('SecretChek report server is running');
 });
 
-// ───────────────────────────────────────────────
-// 📌 Основной маршрут для приёма отчётов
-// ───────────────────────────────────────────────
+// тестовый GET, который шлёт сообщение в Telegram
+app.get('/test-send', async (req, res) => {
+  if (!BOT_TOKEN || !CHAT_ID) {
+    console.log('Telegram env not set, skip send');
+    return res.status(500).send('Telegram env not set');
+  }
 
-app.post('/send-report', upload.array('files', 10), async (req, res) => {
-    try {
-        const { comment, location, time, shopId } = req.body;
-        const files = req.files;
+  const text = 'Тест от SecretChek: сервер жив ✅';
 
-        console.log('=== Новый отчёт ===');
-        console.log('Текст:', comment);
-        console.log('Файлов загружено:', files.length);
+  try {
+    const tgRes = await fetch(`https://api.telegram.org/bot${BOT_TOKEN}/sendMessage`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        chat_id: CHAT_ID,
+        text,
+      }),
+    });
 
-        // 1) Отправляем текст в Telegram
-        const textMessage =
-            `📋 Новый отчёт\n` +
-            `🕒 Время: ${time}\n` +
-            `📍 Локация: ${location}\n` +
-            `🏪 Точка: ${shopId}\n\n` +
-            `💬 Комментарий: ${comment}`;
+    const data = await tgRes.json();
+    console.log('Telegram response (test-send):', data);
 
-        await axios.post(
-            `https://api.telegram.org/bot${BOT_TOKEN}/sendMessage`,
-            { chat_id: CHAT_ID, text: textMessage }
-        );
+    res.send('Test endpoint OK. Сообщение отправлено в Telegram.');
+  } catch (err) {
+    console.error('Error sending Telegram test:', err);
+    res.status(500).send('Error sending Telegram test');
+  }
+});
 
-        // 2) Отправляем файлы (фото, видео и т.д.)
-        for (const file of files) {
-            console.log('Отправляю файл:', file.originalname);
+// 🔥 основной маршрут приёма отчёта от приложения
+app.post('/send-report', async (req, res) => {
+  if (!BOT_TOKEN || !CHAT_ID) {
+    console.log('Telegram env not set, skip send');
+    return res.status(500).json({ ok: false, error: 'Telegram env not set' });
+  }
 
-            const fileStream = fs.createReadStream(file.path);
-            const formData = new FormData();
-            formData.append("chat_id", CHAT_ID);
-            formData.append("document", fileStream, file.originalname);
+  // ждём JSON вида:
+  // { shopName: "...", visitDate: "...", comment: "..." }
+  const { shopName, visitDate, comment } = req.body;
 
-            await axios.post(
-                `https://api.telegram.org/bot${BOT_TOKEN}/sendDocument`,
-                formData,
-                { headers: formData.getHeaders() }
-            );
+  console.log('Received report body:', req.body);
 
-            fs.unlinkSync(file.path); // удалить файл с сервера
-        }
+  const title = shopName || 'Без названия точки';
+  const date  = visitDate || 'Дата не указана';
+  const comm  = comment || 'Комментарий пустой';
 
-        res.json({ ok: true, message: "Report sent to Telegram" });
+  const text =
+    `📝 Новый отчёт SecretChek\n` +
+    `🏪 Точка: ${title}\n` +
+    `📅 Дата визита: ${date}\n` +
+    `💬 Комментарий:\n${comm}`;
 
-    } catch (err) {
-        console.error('Ошибка отправки отчёта:', err.response?.data || err);
-        res.status(500).json({ error: "Ошибка сервера" });
+  try {
+    const tgRes = await fetch(`https://api.telegram.org/bot${BOT_TOKEN}/sendMessage`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        chat_id: CHAT_ID,
+        text,
+      }),
+    });
+
+    const data = await tgRes.json();
+    console.log('Telegram response (send-report):', data);
+
+    if (!data.ok) {
+      return res.status(500).json({ ok: false, error: data });
     }
+
+    res.json({ ok: true });
+  } catch (err) {
+    console.error('Error sending Telegram report:', err);
+    res.status(500).json({ ok: false, error: 'Telegram send failed' });
+  }
 });
 
 module.exports = app;
