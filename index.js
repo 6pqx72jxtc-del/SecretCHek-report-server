@@ -1,4 +1,3 @@
-// index.js
 const app = require('./server');
 
 const PORT = process.env.PORT || 10000;
