@@ -39,6 +39,69 @@ app.get("/", (req, res) => {
 });
 
 // ===============================
+// X) ЛОГИН АГЕНТА ПО ТЕЛЕФОНУ
+//     POST /agent-login
+//     body: { phone, password }
+// ===============================
+app.post("/agent-login", async (req, res) => {
+  try {
+    const { phone, password } = req.body;
+
+    if (!phone || !password) {
+      return res
+        .status(400)
+        .json({ error: "phone и password обязательны" });
+    }
+
+    // Ищем агента по номеру телефона
+    const { data, error } = await supabase
+      .from("agents")
+      .select("*")
+      .eq("phone", phone)
+      .limit(1)
+      .maybeSingle();
+
+    if (error) {
+      console.error("agent-login: supabase error:", error);
+      return res.status(400).json({ error: error.message });
+    }
+
+    if (!data) {
+      return res.status(401).json({ error: "Неверный телефон или пароль" });
+    }
+
+    // Временно сравниваем пароль в лоб (password === password_hash)
+    if (data.password_hash !== password) {
+      return res.status(401).json({ error: "Неверный телефон или пароль" });
+    }
+
+    if (data.status && data.status === "blocked") {
+      return res.status(403).json({ error: "Агент заблокирован" });
+    }
+
+    // Не отдаём password_hash наружу
+    const agentResponse = {
+      id: data.id,
+      full_name: data.full_name,
+      phone: data.phone,
+      email: data.email,
+      city: data.city,
+      rating: data.rating,
+      status: data.status,
+      created_at: data.created_at,
+    };
+
+    res.json({
+      success: true,
+      agent: agentResponse,
+    });
+  } catch (e) {
+    console.error("agent-login fatal:", e);
+    res.status(500).json({ error: "internal_error" });
+  }
+});
+
+// ===============================
 // 1) СОЗДАНИЕ КОМПАНИИ
 // ===============================
 app.post("/create-company", async (req, res) => {
