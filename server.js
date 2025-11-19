@@ -371,17 +371,26 @@ app.post("/agent-login", async (req, res) => {
       .update({ last_login_at: new Date().toISOString() })
       .eq("id", agent.id);
 
-    res.json({
-      success: true,
-      agent: {
-        id: agent.id,
-        full_name: agent.full_name,
-        phone: agent.phone,
-        city: agent.city,
-        rating: agent.rating,
-        status: agent.status,
-      },
-    });
+  // Генерируем JWT токен
+const token = jwt.sign(
+  { agent_id: agent.id, phone: agent.phone },
+  process.env.JWT_SECRET,
+  { expiresIn: "7d" }
+);
+
+// Возвращаем агенту токен + данные
+res.json({
+  success: true,
+  token,
+  agent: {
+    id: agent.id,
+    full_name: agent.full_name,
+    phone: agent.phone,
+    city: agent.city,
+    rating: agent.rating,
+    status: agent.status,
+  },
+});
   } catch (e) {
     console.error("agent-login fatal:", e);
     res.status(500).json({ error: "internal_error" });
