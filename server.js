@@ -260,7 +260,79 @@ app.post("/send-report", upload.array("files", 10), async (req, res) => {
     res.status(500).json({ error: "internal_error" });
   }
 });
+// ===============================
+// 6) АГЕНТ — РЕГИСТРАЦИЯ ПО ТЕЛЕФОНУ
+//    POST /agent-register
+//    body: { phone, password, full_name?, city? }
+// ===============================
+app.post("/agent-register", async (req, res) => {
+  try {
+    const { phone, password, full_name, city } = req.body;
 
+    if (!phone || !password) {
+      return res
+        .status(400)
+        .json({ error: "phone и password обязательны" });
+    }
+
+    // 1) Проверяем, нет ли уже такого телефона
+    const { data: existing, error: checkError } = await supabase
+      .from("agents")
+      .select("id")
+      .eq("phone", phone)
+      .limit(1);
+
+    if (checkError) {
+      console.error("agent-register check error:", checkError);
+      return res.status(400).json({ error: checkError.message });
+    }
+
+    if (existing && existing.length > 0) {
+      return res
+        .status(409)
+        .json({ error: "Агент с таким телефоном уже существует" });
+    }
+
+    // 2) Хэшируем пароль
+    const password_hash = await bcrypt.hash(password, 10);
+
+    // 3) Создаём запись в таблице agents
+    const { data, error: insertError } = await supabase
+      .from("agents")
+      .insert([
+        {
+          phone,
+          password_hash,
+          full_name: full_name || null,
+          city: city || null,
+          status: "pending", // только зарегистрировался
+        },
+      ])
+      .select()
+      .single();
+
+    if (insertError) {
+      console.error("agent-register insert error:", insertError);
+      return res.status(400).json({ error: insertError.message });
+    }
+
+    // 4) Возвращаем агента без password_hash
+    res.json({
+      success: true,
+      agent: {
+        id: data.id,
+        phone: data.phone,
+        full_name: data.full_name,
+        city: data.city,
+        rating: data.rating,
+        status: data.status,
+      },
+    });
+  } catch (e) {
+    console.error("agent-register fatal:", e);
+    res.status(500).json({ error: "internal_error" });
+  }
+});
 // ===============================
 // 6) АГЕНТ — ЛОГИН ПО ТЕЛЕФОНУ
 // ===============================
