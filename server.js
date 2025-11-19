@@ -5,6 +5,7 @@ import multer from "multer";
 import { createClient } from "@supabase/supabase-js";
 import jwt from "jsonwebtoken";           
 import bcrypt from "bcryptjs";  
+import { authAgent } from "./authAgent.js";
 console.log("JWT SECRET LOADED:", process.env.JWT_SECRET ? "YES" : "NO");
 
 const app = express();
@@ -521,6 +522,45 @@ app.post("/agent-register", async (req, res) => {
     res.json({ success: true, agent: data[0] });
   } catch (e) {
     console.error("agent-register fatal:", e);
+    res.status(500).json({ error: "internal_error" });
+  }
+});
+// ===============================
+// 7) ПОЛУЧЕНИЕ ПРОФИЛЯ АГЕНТА (требует токен)
+// ===============================
+app.get("/agent-profile", authAgent, async (req, res) => {
+  try {
+    const agent_id = req.agent.agent_id;
+
+    const { data: agents, error } = await supabase
+      .from("agents")
+      .select("*")
+      .eq("id", agent_id)
+      .limit(1);
+
+    if (error) {
+      console.error("agent-profile error:", error);
+      return res.status(400).json({ error: error.message });
+    }
+
+    if (!agents || agents.length === 0) {
+      return res.status(404).json({ error: "Agent not found" });
+    }
+
+    res.json({
+      success: true,
+      agent: {
+        id: agents[0].id,
+        full_name: agents[0].full_name,
+        phone: agents[0].phone,
+        city: agents[0].city,
+        rating: agents[0].rating,
+        status: agents[0].status,
+        last_login_at: agents[0].last_login_at,
+      },
+    });
+  } catch (e) {
+    console.error("agent-profile fatal:", e);
     res.status(500).json({ error: "internal_error" });
   }
 });
