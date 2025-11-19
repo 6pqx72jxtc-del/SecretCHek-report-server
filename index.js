@@ -1,3 +1,4 @@
+// index.js
 import app from "./server.js";
 
 const PORT = process.env.PORT || 10000;
