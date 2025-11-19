@@ -1,10 +1,10 @@
 // server.js
-const express = require("express");
-const cors = require("cors");
-const multer = require("multer");
-const { createClient } = require("@supabase/supabase-js");
-const jwt = require("jsonwebtoken");
-const bcrypt = require("bcryptjs"); 
+import express from "express";
+import cors from "cors";
+import multer from "multer";
+import { createClient } from "@supabase/supabase-js";
+import jwt from "jsonwebtoken";           // пока не используем, но можно оставить
+import bcrypt from "bcryptjs";            // ИМПОРТ ПАРОЛЕЙ – ТУТ, ВВЕРХУ
 
 const app = express();
 
@@ -193,7 +193,6 @@ app.post("/send-report", upload.array("files", 10), async (req, res) => {
         .json({ error: "agent_id и task_id обязательны для отчёта" });
     }
 
-    // 1) Создаём запись в reports
     const reportInsert = {
       agent_id,
       task_id,
@@ -214,7 +213,6 @@ app.post("/send-report", upload.array("files", 10), async (req, res) => {
     const report = reportData[0];
     const report_id = report.id;
 
-    // 2) Файлы в storage + media_files
     for (const file of files) {
       try {
         const path = `${report_id}/${file.originalname}`;
@@ -264,12 +262,8 @@ app.post("/send-report", upload.array("files", 10), async (req, res) => {
 });
 
 // ===============================
-// Экспорт приложения
-// ===============================,
-// ===============================
 // 6) АГЕНТ — ЛОГИН ПО ТЕЛЕФОНУ
 // ===============================
-
 app.post("/agent-login", async (req, res) => {
   try {
     const { phone, password } = req.body;
@@ -322,5 +316,7 @@ app.post("/agent-login", async (req, res) => {
   }
 });
 
-// Экспорт (CommonJS)
-module.exports = app;
+// ===============================
+// Экспорт приложения (для index.js)
+// ===============================
+export default app;
