@@ -405,6 +405,6 @@ app.post("/send-report", upload.array("files", 10), async (req, res) => {
 });
 
 // ===============================
-// Экспорт для index.js
+// Экспорт приложения (index.js делает app.listen)
 // ===============================
 module.exports = app;
