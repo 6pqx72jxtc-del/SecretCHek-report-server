@@ -378,6 +378,15 @@ const token = jwt.sign(
   process.env.JWT_SECRET,
   { expiresIn: "7d" }
 );
+    // Генерируем JWT-токен для агента
+const tokenPayload = {
+  agent_id: agent.id,
+  phone: agent.phone,
+};
+
+const token = jwt.sign(tokenPayload, process.env.JWT_SECRET, {
+  expiresIn: "7d", // токен на 7 дней
+});
 
 // Возвращаем агенту токен + данные
 res.json({
