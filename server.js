@@ -1,9 +1,10 @@
 // server.js
-import express from "express";
-import cors from "cors";
-import multer from "multer";
-import { createClient } from "@supabase/supabase-js";
-import jwt from "jsonwebtoken";
+const express = require("express");
+const cors = require("cors");
+const multer = require("multer");
+const { createClient } = require("@supabase/supabase-js");
+const jwt = require("jsonwebtoken");
+const bcrypt = require("bcryptjs"); 
 
 const app = express();
 
@@ -264,5 +265,62 @@ app.post("/send-report", upload.array("files", 10), async (req, res) => {
 
 // ===============================
 // Экспорт приложения
+// ===============================,
 // ===============================
-export default app;
+// 6) АГЕНТ — ЛОГИН ПО ТЕЛЕФОНУ
+// ===============================
+
+app.post("/agent-login", async (req, res) => {
+  try {
+    const { phone, password } = req.body;
+
+    if (!phone || !password) {
+      return res.status(400).json({ error: "phone и password обязательны" });
+    }
+
+    const { data: agents, error } = await supabase
+      .from("agents")
+      .select("*")
+      .eq("phone", phone)
+      .limit(1);
+
+    if (error) {
+      console.error("agent-login error:", error);
+      return res.status(400).json({ error: error.message });
+    }
+
+    if (!agents || agents.length === 0) {
+      return res.status(404).json({ error: "Агент не найден" });
+    }
+
+    const agent = agents[0];
+
+    const ok = await bcrypt.compare(password, agent.password_hash);
+    if (!ok) {
+      return res.status(401).json({ error: "Неверный пароль" });
+    }
+
+    await supabase
+      .from("agents")
+      .update({ last_login_at: new Date().toISOString() })
+      .eq("id", agent.id);
+
+    res.json({
+      success: true,
+      agent: {
+        id: agent.id,
+        full_name: agent.full_name,
+        phone: agent.phone,
+        city: agent.city,
+        rating: agent.rating,
+        status: agent.status,
+      },
+    });
+  } catch (e) {
+    console.error("agent-login fatal:", e);
+    res.status(500).json({ error: "internal_error" });
+  }
+});
+
+// Экспорт (CommonJS)
+module.exports = app;
