@@ -1,8 +1,9 @@
-// server.js
-import express from "express";
-import cors from "cors";
-import multer from "multer";
-import { createClient } from "@supabase/supabase-js";
+// server.js (CommonJS)
+
+const express = require("express");
+const cors = require("cors");
+const multer = require("multer");
+const { createClient } = require("@supabase/supabase-js");
 
 const app = express();
 
@@ -38,71 +39,155 @@ app.get("/", (req, res) => {
   res.json({ ok: true, message: "SecretChek server is running" });
 });
 
-// ===============================
-// X) ЛОГИН АГЕНТА ПО ТЕЛЕФОНУ
+
+// ===================================================
+// 1) АГЕНТ: логин / регистрация по номеру телефона
 //     POST /agent-login
-//     body: { phone, password }
-// ===============================
+//     body JSON: { phone, name?, city?, areas? }
+// ===================================================
 app.post("/agent-login", async (req, res) => {
   try {
-    const { phone, password } = req.body;
+    const { phone, name, city, areas } = req.body;
 
-    if (!phone || !password) {
-      return res
-        .status(400)
-        .json({ error: "phone и password обязательны" });
+    if (!phone) {
+      return res.status(400).json({ error: "phone is required" });
     }
 
-    // Ищем агента по номеру телефона
-    const { data, error } = await supabase
+    // 1) Ищем существующего агента
+    const { data: existing, error: selectError } = await supabase
       .from("agents")
       .select("*")
       .eq("phone", phone)
-      .limit(1)
-      .maybeSingle();
+      .limit(1);
 
-    if (error) {
-      console.error("agent-login: supabase error:", error);
-      return res.status(400).json({ error: error.message });
+    if (selectError) {
+      console.error("agent-login select error:", selectError);
+      return res.status(400).json({ error: selectError.message });
     }
 
-    if (!data) {
-      return res.status(401).json({ error: "Неверный телефон или пароль" });
+    let agent;
+
+    if (existing && existing.length > 0) {
+      // Агент уже есть
+      agent = existing[0];
+
+      // Мягко можем обновить имя/город/районы, если пришли
+      const updateFields = {};
+      if (name && name !== agent.name) updateFields.name = name;
+      if (city && city !== agent.city) updateFields.city = city;
+      if (areas && areas !== agent.areas) updateFields.areas = areas;
+
+      if (Object.keys(updateFields).length > 0) {
+        const { data: upd, error: updErr } = await supabase
+          .from("agents")
+          .update(updateFields)
+          .eq("id", agent.id)
+          .select();
+
+        if (updErr) {
+          console.error("agent-login update error:", updErr);
+        } else if (upd && upd.length > 0) {
+          agent = upd[0];
+        }
+      }
+    } else {
+      // 2) Создаём нового агента
+      const insertObj = {
+        phone,
+        name: name || null,
+        city: city || null,
+        areas: areas || null, // строка типа "Ленинский, Октябрьский"
+      };
+
+      const { data: created, error: insertError } = await supabase
+        .from("agents")
+        .insert([insertObj])
+        .select();
+
+      if (insertError) {
+        console.error("agent-login insert error:", insertError);
+        return res.status(400).json({ error: insertError.message });
+      }
+
+      agent = created[0];
     }
 
-    // Временно сравниваем пароль в лоб (password === password_hash)
-    if (data.password_hash !== password) {
-      return res.status(401).json({ error: "Неверный телефон или пароль" });
-    }
-
-    if (data.status && data.status === "blocked") {
-      return res.status(403).json({ error: "Агент заблокирован" });
-    }
-
-    // Не отдаём password_hash наружу
-    const agentResponse = {
-      id: data.id,
-      full_name: data.full_name,
-      phone: data.phone,
-      email: data.email,
-      city: data.city,
-      rating: data.rating,
-      status: data.status,
-      created_at: data.created_at,
-    };
-
-    res.json({
-      success: true,
-      agent: agentResponse,
-    });
+    res.json({ success: true, agent });
   } catch (e) {
     console.error("agent-login fatal:", e);
     res.status(500).json({ error: "internal_error" });
   }
 });
 
+
+// ===================================================
+// 2) Профиль агента
+//     GET /agent-profile?agent_id=UUID
+// ===================================================
+app.get("/agent-profile", async (req, res) => {
+  try {
+    const { agent_id } = req.query;
+
+    if (!agent_id) {
+      return res.status(400).json({ error: "agent_id is required" });
+    }
+
+    const { data: agents, error: agentErr } = await supabase
+      .from("agents")
+      .select("*")
+      .eq("id", agent_id)
+      .limit(1);
+
+    if (agentErr) {
+      console.error("agent-profile error:", agentErr);
+      return res.status(400).json({ error: agentErr.message });
+    }
+
+    if (!agents || agents.length === 0) {
+      return res.status(404).json({ error: "agent_not_found" });
+    }
+
+    const agent = agents[0];
+
+    // Кол-во заданий и отчётов просто для красивой панели
+    const { data: tasks, error: tasksErr } = await supabase
+      .from("tasks")
+      .select("id, status")
+      .eq("agent_id", agent_id);
+
+    if (tasksErr) {
+      console.error("agent-profile tasks error:", tasksErr);
+    }
+
+    const { data: reports, error: repErr } = await supabase
+      .from("reports")
+      .select("id")
+      .eq("agent_id", agent_id);
+
+    if (repErr) {
+      console.error("agent-profile reports error:", repErr);
+    }
+
+    const tasksCount = tasks ? tasks.length : 0;
+    const reportsCount = reports ? reports.length : 0;
+
+    res.json({
+      success: true,
+      agent,
+      stats: {
+        tasksCount,
+        reportsCount,
+      },
+    });
+  } catch (e) {
+    console.error("agent-profile fatal:", e);
+    res.status(500).json({ error: "internal_error" });
+  }
+});
+
+
 // ===============================
-// 1) СОЗДАНИЕ КОМПАНИИ
+// 3) СОЗДАНИЕ КОМПАНИИ
 // ===============================
 app.post("/create-company", async (req, res) => {
   try {
@@ -130,7 +215,7 @@ app.post("/create-company", async (req, res) => {
 });
 
 // ===============================
-// 2) СОЗДАНИЕ ТОЧКИ КОМПАНИИ
+// 4) СОЗДАНИЕ ТОЧКИ КОМПАНИИ
 // ===============================
 app.post("/create-location", async (req, res) => {
   try {
@@ -160,7 +245,7 @@ app.post("/create-location", async (req, res) => {
 });
 
 // ===============================
-// 3) СОЗДАНИЕ ЗАДАНИЯ (TASK)
+// 5) СОЗДАНИЕ ЗАДАНИЯ (TASK)
 // ===============================
 app.post("/create-task", async (req, res) => {
   try {
@@ -209,8 +294,7 @@ app.post("/create-task", async (req, res) => {
 });
 
 // ===============================
-// 4) АГЕНТ ПОЛУЧАЕТ СВОИ ЗАДАНИЯ
-//    GET /tasks-for-agent?agent_id=UUID
+// 6) ЗАДАНИЯ ДЛЯ КОНКРЕТНОГО АГЕНТА
 // ===============================
 app.get("/tasks-for-agent", async (req, res) => {
   try {
@@ -239,9 +323,7 @@ app.get("/tasks-for-agent", async (req, res) => {
 });
 
 // ===============================
-// 5) АГЕНТ ОТПРАВЛЯЕТ ОТЧЁТ + ФАЙЛЫ
-//    POST /send-report (form-data)
-//    Поля: agent_id, task_id, comment, files[]
+// 7) ОТЧЁТ + ФАЙЛЫ (как было)
 // ===============================
 app.post("/send-report", upload.array("files", 10), async (req, res) => {
   try {
@@ -254,7 +336,6 @@ app.post("/send-report", upload.array("files", 10), async (req, res) => {
         .json({ error: "agent_id и task_id обязательны для отчёта" });
     }
 
-    // 1) создаём запись в reports
     const reportInsert = {
       agent_id,
       task_id,
@@ -275,7 +356,6 @@ app.post("/send-report", upload.array("files", 10), async (req, res) => {
     const report = reportData[0];
     const report_id = report.id;
 
-    // 2) заливаем файлы в Supabase Storage + пишем в media_files
     for (const file of files) {
       try {
         const path = `${report_id}/${file.originalname}`;
@@ -292,7 +372,6 @@ app.post("/send-report", upload.array("files", 10), async (req, res) => {
           continue;
         }
 
-        // здесь в url сохраняем path (можно потом построить публичный URL)
         const mediaRow = {
           report_id,
           file_type: file.mimetype,
@@ -326,6 +405,6 @@ app.post("/send-report", upload.array("files", 10), async (req, res) => {
 });
 
 // ===============================
-// Экспорт приложения (index.js делает app.listen)
+// Экспорт для index.js
 // ===============================
-export default app;
+module.exports = app;
