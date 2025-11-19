@@ -373,11 +373,6 @@ app.post("/agent-login", async (req, res) => {
       .eq("id", agent.id);
 
   // Генерируем JWT токен
-const token = jwt.sign(
-  { agent_id: agent.id, phone: agent.phone },
-  process.env.JWT_SECRET,
-  { expiresIn: "7d" }
-);
     // Генерируем JWT-токен для агента
 const tokenPayload = {
   agent_id: agent.id,
