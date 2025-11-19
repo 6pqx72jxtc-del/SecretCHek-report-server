@@ -3,8 +3,9 @@ import express from "express";
 import cors from "cors";
 import multer from "multer";
 import { createClient } from "@supabase/supabase-js";
-import jwt from "jsonwebtoken";           // пока не используем, но можно оставить
-import bcrypt from "bcryptjs";            // ИМПОРТ ПАРОЛЕЙ – ТУТ, ВВЕРХУ
+import jwt from "jsonwebtoken";           
+import bcrypt from "bcryptjs";  
+console.log("JWT SECRET LOADED:", process.env.JWT_SECRET ? "YES" : "NO");
 
 const app = express();
 
