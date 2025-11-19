@@ -387,6 +387,57 @@ app.post("/agent-login", async (req, res) => {
     res.status(500).json({ error: "internal_error" });
   }
 });
+app.post("/agent-register", async (req, res) => {
+  try {
+    const { full_name, phone, password, city } = req.body;
+
+    if (!phone || !password || !full_name) {
+      return res.status(400).json({ error: "full_name, phone и password обязательны" });
+    }
+
+    // Проверяем, нет ли уже такого телефона
+    const { data: exists, error: existsError } = await supabase
+      .from("agents")
+      .select("id")
+      .eq("phone", phone)
+      .limit(1);
+
+    if (existsError) {
+      console.error("agent-register exists check:", existsError);
+      return res.status(500).json({ error: "internal_error" });
+    }
+
+    if (exists && exists.length > 0) {
+      return res.status(409).json({ error: "Агент с таким телефоном уже существует" });
+    }
+
+    // Хэшируем пароль
+    const password_hash = await bcrypt.hash(password, 10);
+
+    // Создаём агента
+    const { data, error } = await supabase
+      .from("agents")
+      .insert([
+        {
+          full_name,
+          phone,
+          password_hash,
+          city,
+        },
+      ])
+      .select();
+
+    if (error) {
+      console.error("agent-register insert:", error);
+      return res.status(400).json({ error: error.message });
+    }
+
+    res.json({ success: true, agent: data[0] });
+  } catch (e) {
+    console.error("agent-register fatal:", e);
+    res.status(500).json({ error: "internal_error" });
+  }
+});
 
 // ===============================
 // Экспорт приложения (для index.js)
