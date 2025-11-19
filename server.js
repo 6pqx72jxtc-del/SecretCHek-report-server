@@ -337,6 +337,78 @@ app.post("/agent-register", async (req, res) => {
 // ===============================
 // 6) АГЕНТ — ЛОГИН ПО ТЕЛЕФОНУ
 // ===============================
+// ===============================
+// 6) АГЕНТ — РЕГИСТРАЦИЯ ПО ТЕЛЕФОНУ
+// ===============================
+app.post("/agent-register", async (req, res) => {
+  try {
+    const { phone, password, full_name, city } = req.body;
+
+    if (!phone || !password) {
+      return res
+        .status(400)
+        .json({ error: "phone и password обязательны" });
+    }
+
+    // Проверяем, нет ли уже агента с таким телефоном
+    const { data: existingAgents, error: existingError } = await supabase
+      .from("agents")
+      .select("id")
+      .eq("phone", phone)
+      .limit(1);
+
+    if (existingError) {
+      console.error("agent-register check error:", existingError);
+      return res.status(400).json({ error: existingError.message });
+    }
+
+    if (existingAgents && existingAgents.length > 0) {
+      return res
+        .status(409)
+        .json({ error: "Агент с таким телефоном уже существует" });
+    }
+
+    // Хэшируем пароль
+    const password_hash = await bcrypt.hash(password, 10);
+
+    // Создаём агента
+    const { data: newAgents, error: insertError } = await supabase
+      .from("agents")
+      .insert([
+        {
+          phone,
+          password_hash,
+          full_name: full_name || null,
+          city: city || null,
+          status: "pending", // можно потом перевести в 'active'
+        },
+      ])
+      .select();
+
+    if (insertError) {
+      console.error("agent-register insert error:", insertError);
+      return res.status(400).json({ error: insertError.message });
+    }
+
+    const agent = newAgents[0];
+
+    // Возвращаем данные агента (без пароля)
+    res.json({
+      success: true,
+      agent: {
+        id: agent.id,
+        full_name: agent.full_name,
+        phone: agent.phone,
+        city: agent.city,
+        rating: agent.rating,
+        status: agent.status,
+      },
+    });
+  } catch (e) {
+    console.error("agent-register fatal:", e);
+    res.status(500).json({ error: "internal_error" });
+  }
+});
 app.post("/agent-login", async (req, res) => {
   try {
     const { phone, password } = req.body;
