@@ -564,6 +564,34 @@ app.get("/agent-profile", authAgent, async (req, res) => {
     res.status(500).json({ error: "internal_error" });
   }
 });
+// ===============================
+// 8) ЗАДАНИЯ ДЛЯ АГЕНТА (требует токен)
+// GET /agent-tasks
+// ===============================
+app.get("/agent-tasks", authAgent, async (req, res) => {
+  try {
+    const agentId = req.agent.agent_id; // из токена
+
+    const { data, error } = await supabase
+      .from("tasks")
+      .select("*")
+      .eq("agent_id", agentId)
+      .order("created_at", { ascending: false });
+
+    if (error) {
+      console.error("agent-tasks error:", error);
+      return res.status(400).json({ success: false, error: error.message });
+    }
+
+    res.json({
+      success: true,
+      tasks: data || [],
+    });
+  } catch (e) {
+    console.error("agent-tasks fatal:", e);
+    res.status(500).json({ success: false, error: "internal_error" });
+  }
+});
 
 // ===============================
 // Экспорт приложения (для index.js)
