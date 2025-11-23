@@ -150,33 +150,48 @@ app.post("/create-task", async (req, res) => {
 });
 
 // ===============================
-// 4) ЗАДАНИЯ ДЛЯ КОНКРЕТНОГО АГЕНТА
-//    GET /tasks-for-agent?agent_id=UUID
-// ===============================
+// 4. Получение заданий агента по номеру телефона
 app.get("/tasks-for-agent", async (req, res) => {
-  try {
-    const { agent_id } = req.query;
+    try {
+        const { phone } = req.query;
 
-    if (!agent_id) {
-      return res.status(400).json({ error: "agent_id is required" });
+        if (!phone) {
+            return res.status(400).json({ error: "phone is required" });
+        }
+
+        // 1. Ищем агента по номеру
+        const { data: agent, error: agentError } = await supabase
+            .from("agents")
+            .select("*")
+            .eq("phone", phone)
+            .maybeSingle();
+
+        if (agentError) {
+            console.error("Agent lookup error:", agentError);
+            return res.status(400).json({ error: agentError.message });
+        }
+
+        if (!agent) {
+            return res.status(404).json({ error: "Agent not found" });
+        }
+
+        // 2. Загружаем задания для найденного agent.id
+        const { data: tasks, error: taskError } = await supabase
+            .from("tasks")
+            .select("*")
+            .eq("agent_id", agent.id)
+            .order("created_at", { ascending: false });
+
+        if (taskError) {
+            console.error("Task load error:", taskError);
+            return res.status(400).json({ error: taskError.message });
+        }
+
+        return res.json({ success: true, tasks });
+    } catch (err) {
+        console.error("Server error:", err);
+        return res.status(500).json({ error: "server error" });
     }
-
-    const { data, error } = await supabase
-      .from("tasks")
-      .select("*")
-      .eq("agent_id", agent_id)
-      .order("created_at", { ascending: false });
-
-    if (error) {
-      console.error("tasks-for-agent error:", error);
-      return res.status(400).json({ error: error.message });
-    }
-
-    res.json(data);
-  } catch (e) {
-    console.error("tasks-for-agent fatal:", e);
-    res.status(500).json({ error: "internal_error" });
-  }
 });
 
 // ===============================
