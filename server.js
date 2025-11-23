@@ -350,6 +350,53 @@ app.post("/agent-register", async (req, res) => {
     res.status(500).json({ error: "internal_error" });
   }
 });
+
+// 1) Запрос кода для регистрации
+app.post("/agent-register/request-code", async (req, res) => {
+  try {
+    const { phone } = req.body;
+
+    if (!phone) {
+      return res.status(400).json({ error: "phone_required" });
+    }
+
+    // Проверяем, что агента с таким телефоном ещё нет
+    const { data: existing, error: checkError } = await supabase
+      .from("agents")
+      .select("id")
+      .eq("phone", phone)
+      .maybeSingle(); // или .single() с обработкой ошибки
+
+    if (existing) {
+      return res.status(400).json({ error: "agent_already_exists" });
+    }
+
+    // Генерируем 4-значный код
+    const code = Math.floor(1000 + Math.random() * 9000).toString();
+
+    const { error: insertError } = await supabase
+      .from("phone_codes")
+      .insert({
+        phone,
+        code,
+        purpose: "register",
+      });
+
+    if (insertError) {
+      console.error("register-code insert error", insertError);
+      return res.status(500).json({ error: "internal_error" });
+    }
+
+    // В реальном проекте тут отправляем SMS через провайдера.
+    // Пока просто логируем в консоль:
+    console.log("REGISTER SMS CODE for", phone, ":", code);
+
+    res.json({ success: true });
+  } catch (e) {
+    console.error("agent-register request-code fatal:", e);
+    res.status(500).json({ error: "internal_error" });
+  }
+});
 // ===============================
 // 6) АГЕНТ — ЛОГИН ПО ТЕЛЕФОНУ
 // ===============================
