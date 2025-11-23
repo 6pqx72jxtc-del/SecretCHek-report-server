@@ -397,6 +397,86 @@ app.post("/agent-register/request-code", async (req, res) => {
     res.status(500).json({ error: "internal_error" });
   }
 });
+
+// 2) Подтверждение регистрации по коду
+app.post("/agent-register/confirm", async (req, res) => {
+  try {
+    const { phone, code, password, full_name, city } = req.body;
+
+    if (!phone || !code || !password || !full_name) {
+      return res.status(400).json({ error: "missing_fields" });
+    }
+
+    // Берём последний неиспользованный код для этого телефона
+    const { data: codes, error: codeError } = await supabase
+      .from("phone_codes")
+      .select("*")
+      .eq("phone", phone)
+      .eq("purpose", "register")
+      .eq("is_used", false)
+      .order("created_at", { ascending: false })
+      .limit(1);
+
+    const codeRow = codes?.[0];
+
+    if (!codeRow) {
+      return res.status(400).json({ error: "code_not_found" });
+    }
+
+    if (codeRow.code !== code) {
+      return res.status(400).json({ error: "code_invalid" });
+    }
+
+    if (new Date(codeRow.expires_at) < new Date()) {
+      return res.status(400).json({ error: "code_expired" });
+    }
+
+    // Хэшируем пароль
+    const password_hash = await bcrypt.hash(password, 10);
+
+    // Создаём агента
+    const { data: agentData, error: insertError } = await supabase
+      .from("agents")
+      .insert({
+        full_name,
+        phone,
+        city,
+        password_hash,
+        status: "pending",
+        rating: 5,
+      })
+      .select()
+      .single();
+
+    if (insertError) {
+      console.error("agent-register insert error:", insertError);
+      return res.status(500).json({ error: "internal_error" });
+    }
+
+    const agent = agentData;
+
+    // Помечаем код использованным
+    await supabase
+      .from("phone_codes")
+      .update({ is_used: true })
+      .eq("id", codeRow.id);
+
+    // Генерим JWT так же, как в /agent-login
+    const tokenPayload = { agent_id: agent.id, phone: agent.phone };
+    const token = jwt.sign(tokenPayload, process.env.JWT_SECRET, {
+      expiresIn: "7d",
+    });
+
+    res.json({
+      success: true,
+      token,
+      agent,
+    });
+  } catch (e) {
+    console.error("agent-register confirm fatal:", e);
+    res.status(500).json({ error: "internal_error" });
+  }
+});
 // ===============================
 // 6) АГЕНТ — ЛОГИН ПО ТЕЛЕФОНУ
 // ===============================
