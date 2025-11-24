@@ -352,131 +352,146 @@ app.post("/agent-register", async (req, res) => {
 });
 
 // 1) Запрос кода для регистрации
-app.post("/agent-register/request-code", async (req, res) => {
-  try {
-    const { phone } = req.body;
+// Обрабатываем ДВА пути:
+//  - /agent-register/request-code
+//  - /agent-register-request   (для iOS)
+app.post(
+  ["/agent-register/request-code", "/agent-register-request"],
+  async (req, res) => {
+    try {
+      const { phone } = req.body;
 
-    if (!phone) {
-      return res.status(400).json({ error: "phone_required" });
+      if (!phone) {
+        return res.status(400).json({ error: "phone_required" });
+      }
+
+      // Проверяем, что агента с таким телефоном ещё нет
+      const { data: existing, error: checkError } = await supabase
+        .from("agents")
+        .select("id")
+        .eq("phone", phone)
+        .maybeSingle();
+
+      if (checkError) {
+        console.error("register-code check error", checkError);
+        return res.status(500).json({ error: "internal_error" });
+      }
+
+      if (existing) {
+        return res.status(400).json({ error: "agent_already_exists" });
+      }
+
+      // Генерируем 4-значный код
+      const code = Math.floor(1000 + Math.random() * 9000).toString();
+
+      const { error: insertError } = await supabase
+        .from("phone_codes")
+        .insert({
+          phone,
+          code,
+          purpose: "register",
+        });
+
+      if (insertError) {
+        console.error("register-code insert error", insertError);
+        return res.status(500).json({ error: "internal_error" });
+      }
+
+      console.log("REGISTER SMS CODE for", phone, ":", code);
+
+      res.json({ success: true });
+    } catch (e) {
+      console.error("agent-register request-code fatal:", e);
+      res.status(500).json({ error: "internal_error" });
     }
-
-    // Проверяем, что агента с таким телефоном ещё нет
-    const { data: existing, error: checkError } = await supabase
-      .from("agents")
-      .select("id")
-      .eq("phone", phone)
-      .maybeSingle(); // или .single() с обработкой ошибки
-
-    if (existing) {
-      return res.status(400).json({ error: "agent_already_exists" });
-    }
-
-    // Генерируем 4-значный код
-    const code = Math.floor(1000 + Math.random() * 9000).toString();
-
-    const { error: insertError } = await supabase
-      .from("phone_codes")
-      .insert({
-        phone,
-        code,
-        purpose: "register",
-      });
-
-    if (insertError) {
-      console.error("register-code insert error", insertError);
-      return res.status(500).json({ error: "internal_error" });
-    }
-
-    // В реальном проекте тут отправляем SMS через провайдера.
-    // Пока просто логируем в консоль:
-    console.log("REGISTER SMS CODE for", phone, ":", code);
-
-    res.json({ success: true });
-  } catch (e) {
-    console.error("agent-register request-code fatal:", e);
-    res.status(500).json({ error: "internal_error" });
   }
-});
+);
 
 // 2) Подтверждение регистрации по коду
-app.post("/agent-register/confirm", async (req, res) => {
-  try {
-    const { phone, code, password, full_name, city } = req.body;
+// Обрабатываем ДВА пути:
+//  - /agent-register/confirm
+//  - /agent-register-confirm  (для iOS)
+app.post(
+  ["/agent-register/confirm", "/agent-register-confirm"],
+  async (req, res) => {
+    try {
+      const { phone, code, password, full_name, city } = req.body;
 
-    if (!phone || !code || !password || !full_name) {
-      return res.status(400).json({ error: "missing_fields" });
+      if (!phone || !code || !password || !full_name) {
+        return res.status(400).json({ error: "missing_fields" });
+      }
+
+      const { data: codes, error: codeError } = await supabase
+        .from("phone_codes")
+        .select("*")
+        .eq("phone", phone)
+        .eq("purpose", "register")
+        .eq("is_used", false)
+        .order("created_at", { ascending: false })
+        .limit(1);
+
+      if (codeError) {
+        console.error("code lookup error:", codeError);
+        return res.status(500).json({ error: "internal_error" });
+      }
+
+      const codeRow = codes?.[0];
+
+      if (!codeRow) {
+        return res.status(400).json({ error: "code_not_found" });
+      }
+
+      if (codeRow.code !== code) {
+        return res.status(400).json({ error: "code_invalid" });
+      }
+
+      if (new Date(codeRow.expires_at) < new Date()) {
+        return res.status(400).json({ error: "code_expired" });
+      }
+
+      const password_hash = await bcrypt.hash(password, 10);
+
+      const { data: agentData, error: insertError } = await supabase
+        .from("agents")
+        .insert({
+          full_name,
+          phone,
+          city,
+          password_hash,
+          status: "pending",
+          rating: 5,
+        })
+        .select()
+        .single();
+
+      if (insertError) {
+        console.error("agent-register insert error:", insertError);
+        return res.status(500).json({ error: "internal_error" });
+      }
+
+      const agent = agentData;
+
+      await supabase
+        .from("phone_codes")
+        .update({ is_used: true })
+        .eq("id", codeRow.id);
+
+      const tokenPayload = { agent_id: agent.id, phone: agent.phone };
+      const token = jwt.sign(tokenPayload, process.env.JWT_SECRET, {
+        expiresIn: "7d",
+      });
+
+      res.json({
+        success: true,
+        token,
+        agent,
+      });
+    } catch (e) {
+      console.error("agent-register confirm fatal:", e);
+      res.status(500).json({ error: "internal_error" });
     }
-
-    // Берём последний неиспользованный код для этого телефона
-    const { data: codes, error: codeError } = await supabase
-      .from("phone_codes")
-      .select("*")
-      .eq("phone", phone)
-      .eq("purpose", "register")
-      .eq("is_used", false)
-      .order("created_at", { ascending: false })
-      .limit(1);
-
-    const codeRow = codes?.[0];
-
-    if (!codeRow) {
-      return res.status(400).json({ error: "code_not_found" });
-    }
-
-    if (codeRow.code !== code) {
-      return res.status(400).json({ error: "code_invalid" });
-    }
-
-    if (new Date(codeRow.expires_at) < new Date()) {
-      return res.status(400).json({ error: "code_expired" });
-    }
-
-    // Хэшируем пароль
-    const password_hash = await bcrypt.hash(password, 10);
-
-    // Создаём агента
-    const { data: agentData, error: insertError } = await supabase
-      .from("agents")
-      .insert({
-        full_name,
-        phone,
-        city,
-        password_hash,
-        status: "pending",
-        rating: 5,
-      })
-      .select()
-      .single();
-
-    if (insertError) {
-      console.error("agent-register insert error:", insertError);
-      return res.status(500).json({ error: "internal_error" });
-    }
-
-    const agent = agentData;
-
-    // Помечаем код использованным
-    await supabase
-      .from("phone_codes")
-      .update({ is_used: true })
-      .eq("id", codeRow.id);
-
-    // Генерим JWT так же, как в /agent-login
-    const tokenPayload = { agent_id: agent.id, phone: agent.phone };
-    const token = jwt.sign(tokenPayload, process.env.JWT_SECRET, {
-      expiresIn: "7d",
-    });
-
-    res.json({
-      success: true,
-      token,
-      agent,
-    });
-  } catch (e) {
-    console.error("agent-register confirm fatal:", e);
-    res.status(500).json({ error: "internal_error" });
   }
-});
+);
 // ===============================
 // 6) АГЕНТ — ЛОГИН ПО ТЕЛЕФОНУ
 // ===============================
