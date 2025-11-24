@@ -809,6 +809,80 @@ app.post("/agent-take-task", authAgent, async (req, res) => {
 });
 
 // ===============================
+// 9) АГЕНТ БЕРЁТ ЗАДАНИЕ
+//    POST /agent-take-task  (требует токен)
+//    body: { task_id }
+// ===============================
+app.post("/agent-take-task", authAgent, async (req, res) => {
+  try {
+    const agentId = req.agent.agent_id;    // из JWT
+    const { task_id } = req.body;
+
+    if (!task_id) {
+      return res
+        .status(400)
+        .json({ success: false, error: "task_id_required" });
+    }
+
+    // 1) Находим задание
+    const { data: task, error: taskError } = await supabase
+      .from("tasks")
+      .select("*")
+      .eq("id", task_id)
+      .maybeSingle();
+
+    if (taskError) {
+      console.error("agent-take-task select error:", taskError);
+      return res
+        .status(400)
+        .json({ success: false, error: taskError.message });
+    }
+
+    if (!task) {
+      return res
+        .status(404)
+        .json({ success: false, error: "task_not_found" });
+    }
+
+    // 2) Проверяем, не занято ли задание другим агентом
+    if (task.agent_id && task.agent_id !== agentId) {
+      return res
+        .status(409)
+        .json({ success: false, error: "task_already_taken" });
+    }
+
+    // 3) Обновляем задание: привязываем к этому агенту, меняем статус
+    const { data: updated, error: updateError } = await supabase
+      .from("tasks")
+      .update({
+        agent_id: agentId,
+        status: "in_progress",        // или "accepted" — как тебе больше нравится
+        updated_at: new Date().toISOString(),
+      })
+      .eq("id", task_id)
+      .select()
+      .single();
+
+    if (updateError) {
+      console.error("agent-take-task update error:", updateError);
+      return res
+        .status(400)
+        .json({ success: false, error: updateError.message });
+    }
+
+    return res.json({
+      success: true,
+      task: updated,
+    });
+  } catch (e) {
+    console.error("agent-take-task fatal:", e);
+    return res
+      .status(500)
+      .json({ success: false, error: "internal_error" });
+  }
+});
+
+// ===============================
 // Экспорт приложения (для index.js)
 // ===============================
 export default app;
