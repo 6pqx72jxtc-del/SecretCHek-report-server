@@ -964,6 +964,65 @@ app.post("/agent-send-report", authAgent, upload.array("files", 10), async (req,
 });
 
 // ===============================
+// 9) АГЕНТ — ОТПРАВИТЬ ОТЧЁТ
+// POST /agent-send-report
+// Требует токен
+// ===============================
+app.post("/agent-send-report", authAgent, async (req, res) => {
+  try {
+    const agent_id = req.agent.agent_id; // берём из JWT
+
+    const {
+      task_id,
+      shop_name,
+      visit_date,
+      comment,
+      photo_count,
+      video_count,
+      doc_count,
+      audio_count
+    } = req.body;
+
+    if (!task_id) {
+      return res.status(400).json({ error: "task_id is required" });
+    }
+
+    // Записываем в БД
+    const { data, error } = await supabase
+      .from("agent_reports")
+      .insert([
+        {
+          agent_id,
+          task_id,
+          shop_name,
+          visit_date,
+          comment,
+          photo_count: photo_count ?? 0,
+          video_count: video_count ?? 0,
+          doc_count: doc_count ?? 0,
+          audio_count: audio_count ?? 0,
+        }
+      ])
+      .select()
+      .single();
+
+    if (error) {
+      console.error("agent-send-report insert error:", error);
+      return res.status(400).json({ error: error.message });
+    }
+
+    res.json({
+      success: true,
+      report: data
+    });
+
+  } catch (e) {
+    console.error("agent-send-report fatal:", e);
+    res.status(500).json({ error: "internal_error" });
+  }
+});
+
+// ===============================
 // Экспорт приложения (для index.js)
 // ===============================
 export default app;
