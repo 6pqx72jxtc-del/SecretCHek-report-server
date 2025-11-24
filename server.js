@@ -844,12 +844,15 @@ app.post("/agent-take-task", authAgent, async (req, res) => {
         .json({ success: false, error: "task_not_found" });
     }
 
-    // 2) Проверяем, не занято ли задание другим агентом
-    if (task.agent_id && task.agent_id !== agentId) {
-      return res
-        .status(409)
-        .json({ success: false, error: "task_already_taken" });
-    }
+    /// если задание уже за этим же агентом — считаем успехом
+if (task.agent_id === agentId) {
+  return res.json({ success: true, task });
+}
+
+// если за другим агентом — тогда уже ошибка
+if (task.agent_id && task.agent_id !== agentId) {
+  return res.status(400).json({ error: "task_already_taken" });
+}
 
     // 3) Обновляем задание: привязываем к этому агенту, меняем статус
     const { data: updated, error: updateError } = await supabase
