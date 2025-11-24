@@ -1097,6 +1097,73 @@ app.post("/agent-report", authAgent, async (req, res) => {
 });
 
 // ===============================
+// АГЕНТ ОТПРАВЛЯЕТ ОТЧЁТ ПО ЗАДАНИЮ
+// POST /agent-send-report
+// body: {
+//   task_id?, shop_name, visit_date, comment,
+//   photo_count, video_count, doc_count, audio_count
+// }
+// ===============================
+app.post("/agent-send-report", authAgent, async (req, res) => {
+  try {
+    const agent_id = req.agent.agent_id; // из JWT
+
+    const {
+      task_id,
+      shop_name,
+      visit_date,
+      comment,
+      photo_count,
+      video_count,
+      doc_count,
+      audio_count,
+    } = req.body;
+
+    if (!shop_name || !visit_date) {
+      return res.status(400).json({ error: "shop_name и visit_date обязательны" });
+    }
+
+    const visitDateISO = new Date(visit_date).toISOString();
+
+    const insertObj = {
+      agent_id,
+      task_id: task_id || null,
+      shop_name,
+      visit_date: visitDateISO,
+      comment: comment || "",
+      photo_count: photo_count ?? 0,
+      video_count: video_count ?? 0,
+      doc_count: doc_count ?? 0,
+      audio_count: audio_count ?? 0,
+    };
+
+    const { data, error } = await supabase
+      .from("reports")
+      .insert([insertObj])
+      .select()
+      .single();
+
+    if (error) {
+      console.error("agent-send-report insert error:", error);
+      return res.status(400).json({ success: false, error: error.message });
+    }
+
+    // опционально: помечаем задание как reported
+    if (task_id) {
+      await supabase
+        .from("tasks")
+        .update({ status: "reported" })
+        .eq("id", task_id);
+    }
+
+    res.json({ success: true, report: data });
+  } catch (e) {
+    console.error("agent-send-report fatal:", e);
+    res.status(500).json({ success: false, error: "internal_error" });
+  }
+});
+
+// ===============================
 // Экспорт приложения (для index.js)
 // ===============================
 export default app;
