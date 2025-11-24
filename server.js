@@ -885,6 +885,84 @@ if (task.agent_id && task.agent_id !== agentId) {
   }
 });
 
+// =====================================
+//  AGENT SEND REPORT (POST /agent-send-report)
+// =====================================
+app.post("/agent-send-report", authAgent, upload.array("files", 10), async (req, res) => {
+  try {
+    const agent_id = req.agent.agent_id; // вытаскиваем из токена
+    const { task_id, comment, visit_date } = req.body;
+    const files = req.files || [];
+
+    if (!task_id) {
+      return res.status(400).json({ success: false, error: "task_id_required" });
+    }
+
+    // создаём запись отчёта
+    const reportInsert = {
+      agent_id,
+      task_id,
+      comment: comment || "",
+      visit_date: visit_date ? new Date(visit_date).toISOString() : null,
+    };
+
+    const { data: reportData, error: reportError } = await supabase
+      .from("reports")
+      .insert([reportInsert])
+      .select()
+      .single();
+
+    if (reportError) {
+      console.error("insert report error:", reportError);
+      return res.status(400).json({ success: false, error: reportError.message });
+    }
+
+    const report_id = reportData.id;
+
+    // сохраняем файлы
+    for (const file of files) {
+      try {
+        const path = `${report_id}/${file.originalname}`;
+
+        const { error: uploadError } = await supabase.storage
+          .from("media")
+          .upload(path, file.buffer, {
+            contentType: file.mimetype,
+            upsert: true,
+          });
+
+        if (uploadError) {
+          console.error("Upload err:", uploadError);
+          continue;
+        }
+
+        await supabase.from("media_files").insert([
+          {
+            report_id,
+            file_type: file.mimetype,
+            url: path,
+            original_filename: file.originalname,
+            size_bytes: file.size,
+          },
+        ]);
+
+      } catch (err) {
+        console.error("file insert error:", err);
+      }
+    }
+
+    return res.json({
+      success: true,
+      report_id,
+      files_count: files.length,
+    });
+
+  } catch (err) {
+    console.error("fatal report error:", err);
+    return res.status(500).json({ success: false, error: "internal_error" });
+  }
+});
+
 // ===============================
 // Экспорт приложения (для index.js)
 // ===============================
