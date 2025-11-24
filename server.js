@@ -749,6 +749,64 @@ app.get("/agent-tasks", authAgent, async (req, res) => {
     res.status(500).json({ success: false, error: "internal_error" });
   }
 });
+// ===============================
+// 9) АГЕНТ БЕРЁТ ЗАДАНИЕ
+// POST /agent-take-task
+// ===============================
+app.post("/agent-take-task", authAgent, async (req, res) => {
+  try {
+    const agentId = req.agent.agent_id;
+    const { task_id } = req.body;
+
+    if (!task_id) {
+      return res.status(400).json({ success: false, error: "task_id required" });
+    }
+
+    // 1. Проверяем, что задание существует и свободно
+    const { data: tasks, error: loadError } = await supabase
+      .from("tasks")
+      .select("*")
+      .eq("id", task_id)
+      .limit(1);
+
+    if (loadError) {
+      console.error("task lookup error:", loadError);
+      return res.status(400).json({ success: false, error: loadError.message });
+    }
+
+    const task = tasks?.[0];
+
+    if (!task) {
+      return res.status(404).json({ success: false, error: "task_not_found" });
+    }
+
+    if (task.status !== "new") {
+      return res.status(400).json({ success: false, error: "task_already_taken" });
+    }
+
+    // 2. Обновляем задание
+    const { data: updated, error: updateError } = await supabase
+      .from("tasks")
+      .update({
+        agent_id: agentId,
+        status: "in_progress",
+        taken_at: new Date().toISOString(),
+      })
+      .eq("id", task_id)
+      .select()
+      .single();
+
+    if (updateError) {
+      console.error("take-task update error:", updateError);
+      return res.status(400).json({ success: false, error: updateError.message });
+    }
+
+    res.json({ success: true, task: updated });
+  } catch (e) {
+    console.error("take-task fatal:", e);
+    res.status(500).json({ success: false, error: "internal_error" });
+  }
+});
 
 // ===============================
 // Экспорт приложения (для index.js)
