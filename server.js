@@ -1023,6 +1023,80 @@ app.post("/agent-send-report", authAgent, async (req, res) => {
 });
 
 // ===============================
+// 9) ОТЧЁТ АГЕНТА
+//     POST /agent-report
+//     JSON: {
+//       task_id?: string,
+//       shop_name: string,
+//       visit_date: string (ISO),
+//       comment?: string,
+//       photo_count: number,
+//       video_count: number,
+//       doc_count: number,
+//       audio_count: number
+//     }
+// ===============================
+app.post("/agent-report", authAgent, async (req, res) => {
+  try {
+    const agent_id = req.agent.agent_id;  // из JWT через authAgent
+
+    const {
+      task_id,
+      shop_name,
+      visit_date,
+      comment,
+      photo_count,
+      video_count,
+      doc_count,
+      audio_count,
+    } = req.body;
+
+    if (!shop_name || !visit_date) {
+      return res.status(400).json({ error: "shop_name и visit_date обязательны" });
+    }
+
+    // Нормализуем дату (на всякий случай)
+    let visitISO = null;
+    try {
+      visitISO = new Date(visit_date).toISOString();
+    } catch {
+      visitISO = visit_date; // если уже ISO строка — оставим как есть
+    }
+
+    const insertObj = {
+      agent_id,
+      task_id: task_id || null,
+      shop_name,
+      visit_date: visitISO,
+      comment: comment || "",
+      photo_count: photo_count ?? 0,
+      video_count: video_count ?? 0,
+      doc_count: doc_count ?? 0,
+      audio_count: audio_count ?? 0,
+    };
+
+    const { data, error } = await supabase
+      .from("agent_reports")
+      .insert([insertObj])
+      .select()
+      .single();
+
+    if (error) {
+      console.error("agent-report insert error:", error);
+      return res.status(400).json({ error: error.message });
+    }
+
+    res.json({
+      success: true,
+      report: data,
+    });
+  } catch (e) {
+    console.error("agent-report fatal:", e);
+    res.status(500).json({ error: "internal_error" });
+  }
+});
+
+// ===============================
 // Экспорт приложения (для index.js)
 // ===============================
 export default app;
