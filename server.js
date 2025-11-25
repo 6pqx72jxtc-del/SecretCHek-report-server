@@ -1164,6 +1164,93 @@ app.post("/agent-send-report", authAgent, async (req, res) => {
 });
 
 // ===============================
+// 5) ОТЧЁТ АГЕНТА + ФАЙЛЫ
+//    POST /agent-send-report (form-data)
+//    Поля: task_id, shop_name, visit_date, comment, files[]
+//    Требует токен (authAgent)
+// ===============================
+app.post("/agent-send-report", authAgent, upload.array("files", 10), async (req, res) => {
+  try {
+    const agent_id = req.agent.agent_id; // из токена
+    const { task_id, shop_name, visit_date, comment } = req.body;
+    const files = req.files || [];
+
+    if (!task_id) {
+      return res.status(400).json({ error: "task_id is required" });
+    }
+
+    // 1) создаём запись в reports
+    const reportInsert = {
+      agent_id,
+      task_id,
+      shop_name: shop_name || null,
+      comment: comment || "",
+      visit_date: visit_date ? new Date(visit_date).toISOString() : null,
+    };
+
+    const { data: reportData, error: reportError } = await supabase
+      .from("reports")
+      .insert([reportInsert])
+      .select()
+      .single();
+
+    if (reportError) {
+      console.error("agent-send-report: reportError:", reportError);
+      return res.status(400).json({ error: reportError.message });
+    }
+
+    const report = reportData;
+    const report_id = report.id;
+
+    // 2) загружаем файлы в Storage + пишем в media_files
+    for (const file of files) {
+      try {
+        const path = `${report_id}/${Date.now()}-${file.originalname}`;
+
+        const { error: uploadError } = await supabase.storage
+          .from("media")               // <= имя bucket'а
+          .upload(path, file.buffer, {
+            contentType: file.mimetype,
+            upsert: true,
+          });
+
+        if (uploadError) {
+          console.error("Upload error for file", file.originalname, uploadError);
+          continue; // не роняем весь запрос из-за одного файла
+        }
+
+        const mediaRow = {
+          report_id,
+          file_type: file.mimetype,
+          url: path,
+          original_filename: file.originalname,
+          size_bytes: file.size,
+        };
+
+        const { error: mediaError } = await supabase
+          .from("media_files")
+          .insert([mediaRow]);
+
+        if (mediaError) {
+          console.error("media_files insert error:", mediaError);
+        }
+      } catch (fileErr) {
+        console.error("File loop error:", fileErr);
+      }
+    }
+
+    return res.json({
+      success: true,
+      report_id,
+      files_count: files.length,
+    });
+  } catch (e) {
+    console.error("agent-send-report fatal:", e);
+    return res.status(500).json({ error: "internal_error" });
+  }
+});
+
+// ===============================
 // Экспорт приложения (для index.js)
 // ===============================
 export default app;
